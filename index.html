@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ドットイートゲーム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #111;
+            color: #fff;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .game-wrapper {
+            text-align: center;
+        }
+        canvas {
+            background-color: #000;
+            display: block;
+            margin: 0 auto;
+            border: 4px solid #00f;
+            box-shadow: 0 0 20px #00f;
+        }
+        .info-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end; /* Align items to the bottom */
+            width: 100%;
+            max-width: 640px;
+            padding: 0 20px;
+        }
+        .info-container.top {
+            margin-bottom: 15px;
+        }
+        .info-container.bottom {
+            margin-top: 15px;
+        }
+        .info-item {
+            text-align: left;
+        }
+        .info-item .label {
+            color: #aaa;
+            font-size: 1rem;
+            display: block;
+        }
+        .info-item .value {
+            color: #fff;
+            font-size: 1.2rem;
+            display: block;
+            min-width: 100px; /* 値が変動してもラベルが動かないように最小幅を設定 */
+        }
+        /* Invincible Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+    </style>
+</head>
+<body class="bg-black text-white">
+
+    <div class="game-wrapper">
+        <div id="top-panel" class="info-container top">
+            <div class="info-item">
+                <span class="label">SCORE</span>
+                <span class="value" id="score">0</span>
+            </div>
+            <div class="info-item" style="text-align: right;">
+                <span class="label">HI-SCORE</span>
+                <span class="value" id="highScore">0</span>
+            </div>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="bottom-panel" class="info-container bottom">
+            <div class="info-item">
+                <span class="label">STAGE</span>
+                <span class="value" id="stage">1</span>
+            </div>
+            <div class="info-item">
+                <span class="label">LIVES</span>
+                <span class="value" id="lives">0</span>
+            </div>
+            <div class="info-item" style="text-align: right;">
+                 <span class="label">INVINCIBLE</span>
+                 <label class="toggle-switch">
+                    <input type="checkbox" id="invincible-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- ゲームのセットアップ ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const highScoreEl = document.getElementById('highScore');
+        const livesEl = document.getElementById('lives');
+        const stageEl = document.getElementById('stage');
+        const topPanel = document.getElementById('top-panel');
+        const bottomPanel = document.getElementById('bottom-panel');
+        const invincibleToggle = document.getElementById('invincible-toggle');
+
+        const TILE_SIZE = 32;
+        let score = 0;
+        let highScore = 0;
+        let lives = 3;
+        let stage = 1;
+        let dots = [];
+        let player;
+        let enemies = [];
+        let currentMaze;
+        let isInvincible = false;
+        
+        let gameState = 'title';
+
+        const mazes = [
+            // Stage 1
+            [
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1],
+                [1,0,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,0,1],
+                [1,0,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,1,1,0,1,0,1,1,1,1,1,1,0,1,0,1,1,0,1],
+                [1,0,0,0,0,1,0,0,0,1,1,0,0,0,1,0,0,0,0,1],
+                [1,1,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,1,1],
+                [1,1,1,1,0,1,0,0,0,0,0,0,0,0,1,0,1,1,1,1],
+                [1,1,1,1,0,1,0,1,1,0,0,1,1,0,1,0,1,1,1,1],
+                [1,0,0,0,0,0,0,1,1,0,0,1,1,0,0,0,0,0,0,1],
+                [1,0,1,1,1,1,0,1,1,1,1,1,1,0,1,1,1,1,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+            ],
+            // Stage 2
+            [
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,1],
+                [1,0,1,1,1,0,1,0,1,1,1,1,0,1,0,1,1,1,0,1],
+                [1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1],
+                [1,0,1,0,1,1,0,1,1,1,1,1,1,0,1,1,0,1,0,1],
+                [1,0,0,0,1,0,0,0,0,1,1,0,0,0,0,1,0,0,0,1],
+                [1,1,1,1,1,0,1,1,0,1,1,0,1,1,0,1,1,1,1,1],
+                [1,1,1,1,1,0,1,0,0,0,0,0,0,1,0,1,1,1,1,1],
+                [1,0,0,0,1,0,1,0,1,1,1,1,0,1,0,1,0,0,0,1],
+                [1,0,1,0,1,0,1,0,0,0,0,0,0,1,0,1,0,1,0,1],
+                [1,0,1,0,0,0,0,0,1,1,1,1,0,0,0,0,0,1,0,1],
+                [1,0,1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,0,1],
+                [1,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+            ],
+            // Stage 3 (Final, Verified Design)
+            [
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,1,1,0,1,1,1,1,1,1,1,1,1,1,0,1,1,0,1],
+                [1,0,1,1,0,1,0,0,0,0,0,0,0,0,1,0,1,1,0,1],
+                [1,0,0,0,0,1,0,1,1,1,1,1,1,0,1,0,0,0,0,1],
+                [1,0,1,1,1,1,0,1,0,0,0,0,1,0,1,1,1,1,0,1],
+                [1,0,1,0,0,0,0,1,0,1,1,0,1,0,0,0,0,1,0,1],
+                [1,0,1,0,1,1,1,1,0,1,1,0,1,1,1,1,0,1,0,1],
+                [1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1],
+                [1,0,1,0,1,0,1,1,1,1,1,1,1,1,0,1,0,1,0,1],
+                [1,0,0,0,1,0,1,0,0,0,0,0,0,1,0,1,0,0,0,1],
+                [1,0,1,1,1,0,1,0,1,1,1,1,0,1,0,1,1,1,0,1],
+                [1,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+            ]
+        ];
+
+        canvas.width = mazes[0][0].length * TILE_SIZE;
+        canvas.height = mazes[0].length * TILE_SIZE;
+
+        // --- クラス定義 ---
+        class Character {
+            constructor(x, y) {
+                this.startX = x;
+                this.startY = y;
+                this.x = x;
+                this.y = y;
+                this.speed = 1;
+                this.dir = { x: 0, y: 0 };
+            }
+            resetPosition() {
+                this.x = this.startX;
+                this.y = this.startY;
+                this.dir = { x: 0, y: 0 };
+            }
+        }
+
+        class Player extends Character {
+            constructor(x, y) {
+                super(x, y);
+                this.speed = 2;
+                this.radius = TILE_SIZE / 2 - 4;
+                this.nextDir = { x: 0, y: 0 };
+                this.mouthOpen = 0;
+                this.viewAngle = 0;
+            }
+            resetPosition() {
+                super.resetPosition();
+                this.nextDir = { x: 0, y: 0 };
+                this.viewAngle = 0;
+            }
+            draw() {
+                // Draw invincible shield
+                if (isInvincible) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + 4, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                    ctx.fill();
+                }
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.viewAngle);
+                this.mouthOpen = (this.mouthOpen + 0.2) % (Math.PI / 2);
+                const mouthAngle = (this.dir.x === 0 && this.dir.y === 0) ? 0.1 : Math.abs(Math.sin(this.mouthOpen)) * (Math.PI / 4);
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, mouthAngle, Math.PI * 2 - mouthAngle);
+                ctx.lineTo(0, 0);
+                ctx.closePath();
+                ctx.fillStyle = 'yellow';
+                ctx.fill();
+                ctx.restore();
+            }
+            update() {
+                const onGridCenter = (this.x % TILE_SIZE === TILE_SIZE / 2) && (this.y % TILE_SIZE === TILE_SIZE / 2);
+                if (onGridCenter) {
+                    const currentGridX = Math.floor(this.x / TILE_SIZE);
+                    const currentGridY = Math.floor(this.y / TILE_SIZE);
+                    if (this.nextDir.x !== 0 || this.nextDir.y !== 0) {
+                        const nextGridX = currentGridX + this.nextDir.x;
+                        const nextGridY = currentGridY + this.nextDir.y;
+                        if (currentMaze[nextGridY] && currentMaze[nextGridY][nextGridX] === 0) {
+                            this.dir.x = this.nextDir.x;
+                            this.dir.y = this.nextDir.y;
+                            this.nextDir = { x: 0, y: 0 };
+                        }
+                    }
+                    const nextTileX = currentGridX + this.dir.x;
+                    const nextTileY = currentGridY + this.dir.y;
+                    if (currentMaze[nextTileY] && currentMaze[nextTileY][nextTileX] === 1) {
+                        this.dir.x = 0;
+                        this.dir.y = 0;
+                    }
+                }
+                if (this.dir.x !== 0 || this.dir.y !== 0) {
+                    this.viewAngle = Math.atan2(this.dir.y, this.dir.x);
+                }
+                this.x += this.dir.x * this.speed;
+                this.y += this.dir.y * this.speed;
+                if (this.x < -this.radius) this.x = canvas.width + this.radius;
+                if (this.x > canvas.width + this.radius) this.x = -this.radius;
+            }
+        }
+
+        class Enemy extends Character {
+            constructor(x, y, color) {
+                super(x, y);
+                this.radius = TILE_SIZE / 2 - 5;
+                this.color = color;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+            update() {
+                const onGridCenter = (this.x % TILE_SIZE === TILE_SIZE / 2) && (this.y % TILE_SIZE === TILE_SIZE / 2);
+                if (onGridCenter) {
+                    this.changeDirection();
+                }
+                this.x += this.dir.x * this.speed;
+                this.y += this.dir.y * this.speed;
+            }
+            changeDirection() {
+                const currentGridX = Math.floor(this.x / TILE_SIZE);
+                const currentGridY = Math.floor(this.y / TILE_SIZE);
+                const allDirections = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+                let possibleDirections = [];
+                for (const d of allDirections) {
+                    const nextGridX = currentGridX + d.x;
+                    const nextGridY = currentGridY + d.y;
+                    if (currentMaze[nextGridY] && currentMaze[nextGridY][nextGridX] === 0) {
+                        possibleDirections.push(d);
+                    }
+                }
+                if (possibleDirections.length > 1) {
+                    possibleDirections = possibleDirections.filter(d => d.x !== -this.dir.x || d.y !== -this.dir.y);
+                }
+                if (possibleDirections.length > 0) {
+                    this.dir = possibleDirections[Math.floor(Math.random() * possibleDirections.length)];
+                }
+            }
+        }
+
+        class Dot {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 3;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'white';
+                ctx.fill();
+            }
+        }
+        
+        // --- ゲーム管理 ---
+        function loadHighScore() {
+            highScore = localStorage.getItem('dotEaterHighScore') || 0;
+        }
+
+        function saveHighScore() {
+            // This function is now only called at game over, but real-time saving happens in checkCollisions
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('dotEaterHighScore', highScore);
+            }
+        }
+
+        function initGame() {
+            score = 0;
+            lives = 3;
+            stage = 1;
+            loadHighScore(); // ゲーム開始時にハイスコアをロード
+            player = new Player(TILE_SIZE * 1.5, TILE_SIZE * 1.5);
+            enemies = [
+                new Enemy(TILE_SIZE * 18.5, TILE_SIZE * 1.5, 'red'),
+                new Enemy(TILE_SIZE * 1.5, TILE_SIZE * 12.5, 'cyan'),
+                new Enemy(TILE_SIZE * 18.5, TILE_SIZE * 12.5, 'pink')
+            ];
+            setupStage();
+        }
+
+        function setupStage() {
+            currentMaze = mazes[(stage - 1) % mazes.length];
+            dots = [];
+            for (let y = 0; y < currentMaze.length; y++) {
+                for (let x = 0; x < currentMaze[y].length; x++) {
+                    if (currentMaze[y][x] === 0) {
+                        dots.push(new Dot(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2));
+                    }
+                }
+            }
+            resetAllCharacters();
+            const enemySpeed = (stage < 5) ? 1 : 2;
+            enemies.forEach(enemy => enemy.speed = enemySpeed);
+            updateUI();
+            gameState = 'playing';
+        }
+        
+        function resetAllCharacters() {
+             player.resetPosition();
+             enemies.forEach(enemy => enemy.resetPosition());
+        }
+
+        function updateUI() {
+            scoreEl.textContent = score;
+            highScoreEl.textContent = highScore;
+            livesEl.textContent = lives;
+            stageEl.textContent = stage;
+        }
+        
+        function checkCollisions() {
+            // Player vs Dots
+            for (let i = dots.length - 1; i >= 0; i--) {
+                const dot = dots[i];
+                const dist = Math.hypot(player.x - dot.x, player.y - dot.y);
+                if (dist < player.radius + dot.radius) {
+                    dots.splice(i, 1);
+                    score += 10;
+                    // 【バグ修正】ハイスコアをリアルタイムで更新し、即座に保存する
+                    if (score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('dotEaterHighScore', highScore);
+                    }
+                    updateUI();
+                }
+            }
+            
+            // Player vs Enemies (respects invincibility)
+            if (!isInvincible) {
+                for(let enemy of enemies) {
+                    const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+                    if (dist < player.radius + enemy.radius) {
+                        handlePlayerCaught();
+                        break;
+                    }
+                }
+            }
+        }
+        
+        function handlePlayerCaught() {
+            lives--;
+            gameState = 'paused';
+            updateUI();
+            
+            if (lives > 0) {
+                setTimeout(() => {
+                   resetAllCharacters();
+                   gameState = 'playing';
+                }, 1500);
+            } else {
+                // Final save just in case, though it should be up-to-date
+                saveHighScore();
+                gameState = 'gameOver';
+            }
+        }
+
+        function checkWinCondition() {
+            if (dots.length === 0) {
+                gameState = 'stageClear';
+                stage++;
+                setTimeout(setupStage, 2000);
+            }
+        }
+        
+        // --- 描画処理 ---
+        function drawTextScreen(title, subtitle) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.font = '40px "Press Start 2P"';
+            ctx.fillText(title, canvas.width / 2, canvas.height / 2 - 40);
+            ctx.font = '20px "Press Start 2P"';
+            ctx.fillText(subtitle, canvas.width / 2, canvas.height / 2 + 20);
+        }
+
+        function drawGame() {
+            drawMaze();
+            dots.forEach(dot => dot.draw());
+            player.draw();
+            enemies.forEach(enemy => enemy.draw());
+        }
+
+        function drawMaze() {
+            ctx.fillStyle = '#00f';
+            for (let y = 0; y < currentMaze.length; y++) {
+                for (let x = 0; x < currentMaze[y].length; x++) {
+                    if (currentMaze[y][x] === 1) {
+                        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    }
+                }
+            }
+        }
+
+        // --- メインループ ---
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            switch(gameState) {
+                case 'title':
+                    topPanel.style.visibility = 'hidden';
+                    bottomPanel.style.visibility = 'hidden';
+                    drawTextScreen('DOT EATER', 'Press Enter to Start');
+                    break;
+                case 'playing':
+                    topPanel.style.visibility = 'visible';
+                    bottomPanel.style.visibility = 'visible';
+                    player.update();
+                    enemies.forEach(enemy => enemy.update());
+                    checkCollisions();
+                    checkWinCondition();
+                    drawGame();
+                    break;
+                case 'paused':
+                    topPanel.style.visibility = 'visible';
+                    bottomPanel.style.visibility = 'visible';
+                    drawGame();
+                    drawTextScreen('MISS!', '');
+                    break;
+                case 'stageClear':
+                    topPanel.style.visibility = 'visible';
+                    bottomPanel.style.visibility = 'visible';
+                    drawGame();
+                    drawTextScreen(`STAGE CLEAR`, `STAGE ${stage} START`);
+                    break;
+                case 'gameOver':
+                    topPanel.style.visibility = 'visible';
+                    bottomPanel.style.visibility = 'visible';
+                    drawGame();
+                    drawTextScreen('GAME OVER', 'Press Enter to Retry');
+                    break;
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- イベントリスナー ---
+        invincibleToggle.addEventListener('change', (e) => {
+            isInvincible = e.target.checked;
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (gameState === 'title' || gameState === 'gameOver') {
+                    initGame();
+                }
+            }
+            if (gameState !== 'playing') return;
+            
+            e.preventDefault();
+            switch (e.key) {
+                case 'ArrowUp': player.nextDir = { x: 0, y: -1 }; break;
+                case 'ArrowDown': player.nextDir = { x: 0, y: 1 }; break;
+                case 'ArrowLeft': player.nextDir = { x: -1, y: 0 }; break;
+                case 'ArrowRight': player.nextDir = { x: 1, y: 0 }; break;
+            }
+        });
+        
+        // --- ゲーム開始 ---
+        loadHighScore();
+        updateUI();
+        gameLoop();
+
+    </script>
+</body>
+</html>
